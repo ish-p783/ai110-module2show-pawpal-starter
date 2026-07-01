@@ -11,11 +11,22 @@ Data ownership (how the pieces relate):
     so it never reaches into a Pet directly.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 
 # Ranking so priorities sort correctly (higher number = more important).
 # Use this instead of sorting priority strings, which would sort alphabetically.
 PRIORITY_ORDER = {"high": 3, "medium": 2, "low": 1}
+
+# How far ahead the next occurrence of a recurring task lands. timedelta does
+# the calendar math (month/year rollover) for us. A frequency not in this map
+# (e.g. "once") simply doesn't repeat.
+FREQUENCY_DELTAS = {
+    "daily": timedelta(days=1),
+    "weekly": timedelta(weeks=1),
+}
 
 
 @dataclass
@@ -26,6 +37,8 @@ class Task:
     duration_minutes: int = 0
     priority: str = "medium"  # "high", "medium", or "low"
     frequency: str = "daily"  # e.g. "daily", "weekly", "once"
+    start_time: str = ""  # clock time in "HH:MM" (24h); "" means unscheduled
+    due_date: date = field(default_factory=date.today)  # day this task is due
     completed: bool = False
     pet: "Pet | None" = None  # back-reference, set when added to a Pet
 
@@ -37,9 +50,45 @@ class Task:
         """Numeric rank for sorting (unknown priorities rank lowest)."""
         return PRIORITY_ORDER.get(self.priority, 0)
 
-    def mark_complete(self) -> None:
-        """Mark this task as done."""
+    def is_recurring(self) -> bool:
+        """True if this task repeats (daily/weekly), not a one-off."""
+        return self.frequency in FREQUENCY_DELTAS
+
+    def next_occurrence(self) -> "Task | None":
+        """Build the next instance of this task, or None if it doesn't repeat.
+
+        The copy starts incomplete and its due_date is advanced by the
+        frequency's timedelta (daily = +1 day, weekly = +7 days).
+        """
+        delta = FREQUENCY_DELTAS.get(self.frequency)
+        if delta is None:
+            return None
+        return Task(
+            description=self.description,
+            duration_minutes=self.duration_minutes,
+            priority=self.priority,
+            frequency=self.frequency,
+            start_time=self.start_time,
+            due_date=self.due_date + delta,
+            completed=False,
+        )
+
+    def mark_complete(self) -> "Task | None":
+        """Mark this task done and, if it recurs, schedule its next occurrence.
+
+        For a daily/weekly task attached to a pet, a fresh instance is created
+        for the next due date and added to the same pet. Returns that new task
+        (or None for one-off tasks). Re-completing an already-done task is a
+        no-op so it can't spawn duplicates.
+        """
+        if self.completed:
+            return None  # already done — don't spawn a second copy
         self.completed = True
+
+        upcoming = self.next_occurrence()
+        if upcoming is not None and self.pet is not None:
+            self.pet.add_task(upcoming)
+        return upcoming
 
     def mark_incomplete(self) -> None:
         """Mark this task as not done."""
@@ -115,6 +164,64 @@ class Scheduler:
         """Return tasks ordered highest priority first."""
         return sorted(tasks, key=lambda t: t.priority_rank(), reverse=True)
 
+    def sort_by_time(self, tasks: list[Task]) -> list[Task]:
+        """Return tasks ordered earliest start time first.
+
+        Parses each "HH:MM" string into an (hour, minute) tuple so comparison
+        is numeric, not lexicographic. That means "9:30" sorts before "10:00"
+        even if it isn't zero-padded. Unscheduled tasks ("") sort to the end.
+        """
+
+        def time_key(task: Task) -> tuple[int, int]:
+            if not task.start_time:
+                return (24, 0)  # push unscheduled tasks after any real time
+            hour, minute = (int(x) for x in task.start_time.split(":"))
+            return (hour, minute)
+
+        return sorted(tasks, key=time_key)
+
+    def filter_by_status(self, completed: bool = False) -> list[Task]:
+        """Return the owner's tasks matching the given completion status."""
+        return [t for t in self.owner.get_all_tasks() if t.completed == completed]
+
+    def filter_by_pet(self, pet_name: str) -> list[Task]:
+        """Return the owner's tasks that belong to the named pet."""
+        return [
+            t
+            for t in self.owner.get_all_tasks()
+            if t.pet is not None and t.pet.name == pet_name
+        ]
+
+    def detect_conflicts(self, tasks: list[Task] | None = None) -> list[str]:
+        """Return warnings for tasks that share the same start time.
+
+        Lightweight strategy: bucket every scheduled task by its exact "HH:MM"
+        start time, then flag any slot that holds more than one task — whether
+        those tasks belong to the same pet or different ones. Unscheduled tasks
+        (blank start_time) are ignored.
+
+        Returns a list of human-readable warning strings (empty when there are
+        no clashes). It never raises, so a caller can simply print the results
+        and carry on rather than crashing the program.
+        """
+        if tasks is None:
+            tasks = self.owner.get_all_tasks()
+
+        by_time: dict[str, list[Task]] = {}
+        for task in tasks:
+            if task.start_time:  # skip unscheduled tasks
+                by_time.setdefault(task.start_time, []).append(task)
+
+        warnings: list[str] = []
+        for start_time, clashing in by_time.items():
+            if len(clashing) > 1:
+                labels = ", ".join(
+                    f"{t.description} ({t.pet.name if t.pet else 'unknown pet'})"
+                    for t in clashing
+                )
+                warnings.append(f"WARNING: {len(clashing)} tasks clash at {start_time}: {labels}")
+        return warnings
+
     def generate_plan(self) -> list[Task]:
         """Build a daily plan of pending tasks that fits the available time.
 
@@ -130,7 +237,10 @@ class Scheduler:
             if minutes_used + task.duration_minutes <= self.owner.minutes_available:
                 plan.append(task)
                 minutes_used += task.duration_minutes
-        return plan
+
+        # Chosen by priority above, but hand back the plan in clock order so
+        # the owner reads it as a timeline rather than an importance ranking.
+        return self.sort_by_time(plan)
 
     def explain_plan(self) -> str:
         """Human-readable summary of the generated plan and why."""

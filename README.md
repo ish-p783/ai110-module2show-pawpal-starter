@@ -45,7 +45,13 @@ pip install -r requirements.txt
 ## 🖥️ Sample Output
 
 Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
-
+Today's Schedule
+========================================
+Planned 4 task(s) using 75 of 90 available minutes:
+  - Morning walk (Rex) [high, 30 min]
+  - Give medication (Mia) [high, 10 min]
+  - Play with feather toy (Mia) [medium, 20 min]
+  - Brush coat (Rex) [low, 15 min]
 ```
 # e.g.:
 # Daily plan for Biscuit (Golden Retriever):
@@ -72,14 +78,21 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
+PawPal+ goes beyond a flat task list with four pieces of scheduling logic, all in
+`pawpal_system.py`:
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Task sorting | `Scheduler.sort_by_priority()`, `Scheduler.sort_by_time()` | Priority sort ranks high→low via `PRIORITY_ORDER`. Time sort parses `"HH:MM"` into an `(hour, minute)` tuple so `"9:00"` correctly precedes `"10:00"` even when unpadded; unscheduled tasks sort last. |
+| Filtering | `Scheduler.filter_by_status()`, `Scheduler.filter_by_pet()` | Return just the completed/pending tasks, or only the tasks belonging to a named pet. |
+| Conflict detection | `Scheduler.detect_conflicts()` | Buckets scheduled tasks by exact start time and returns a warning string for any slot holding more than one task (same pet **or** different pets). Never raises — the caller prints the warning and continues. |
+| Recurring tasks | `Task.mark_complete()`, `Task.next_occurrence()`, `Task.is_recurring()` | Completing a `daily`/`weekly` task auto-creates a fresh, incomplete copy for the next due date (`due_date + timedelta`, so calendar rollover is handled). `once` tasks don't recur. |
+
+### How the daily plan is built
+
+`Scheduler.generate_plan()` greedily selects the highest-priority pending tasks that fit
+inside the owner's `minutes_available`, then returns them ordered by time so the plan reads
+as a timeline. `Scheduler.explain_plan()` renders that plan as human-readable text.
 
 ## 📸 Demo Walkthrough
 
