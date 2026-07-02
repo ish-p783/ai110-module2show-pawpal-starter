@@ -62,19 +62,40 @@ Planned 4 task(s) using 75 of 90 available minutes:
 
 ## 🧪 Testing PawPal+
 
+Run the full automated test suite from the project root:
+
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest
 ```
 
-Sample test output:
+The suite (`tests/test_pawpal.py`) covers the behaviors most likely to break:
+
+- **Recurrence logic** — completing a daily task spawns a fresh copy due the next day; weekly tasks land 7 days out; `once` tasks don't recur; and re-completing an already-done task is a no-op (no duplicate spawned).
+- **Recurrence edge cases** — a recurring task with no attached pet still returns its next occurrence without crashing.
+- **Sorting correctness** — `sort_by_time()` returns tasks in chronological order, correctly placing `"9:30"` before `"10:00"` (numeric parse, not string compare).
+- **Conflict detection** — the `Scheduler` flags two tasks sharing the same start time with a single warning naming both.
+- **Plan generation** — an owner with no tasks yields an empty plan and a clear "No tasks fit" message.
+- **Core model** — adding a task increases a pet's task count; `mark_complete()` flips completion status.
+
+Successful test run:
 
 ```
-# Paste your pytest output here
+============================= test session starts =============================
+platform win32 -- Python 3.9.0, pytest-8.4.2, pluggy-1.6.0
+rootdir: C:\Users\ishp1\ai110-module2show-pawpal-starter
+collected 10 items
+
+tests\test_pawpal.py ..........                                          [100%]
+
+============================= 10 passed in 0.03s ==============================
 ```
+
+### Confidence Level: ⭐⭐⭐⭐☆ (4/5)
+
+All 10 tests pass and cover the core scheduling logic — recurrence, sorting, and conflict
+detection — including several edge cases. Confidence is high but not maxed out because the
+tests exercise the logic layer only; the Streamlit UI (`app.py`) is not yet covered by
+automated tests.
 
 ## 📐 Smarter Scheduling
 
