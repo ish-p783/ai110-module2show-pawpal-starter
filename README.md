@@ -22,6 +22,18 @@ Your final app should:
 - Display the plan clearly (and ideally explain the reasoning)
 - Include tests for the most important scheduling behaviors
 
+## ✨ Features
+
+The scheduling algorithms all live in `pawpal_system.py` and are surfaced through both the Streamlit UI (`app.py`) and a CLI demo (`main.py`):
+
+- **Priority sorting** — orders tasks high → medium → low using a numeric `PRIORITY_ORDER` rank, so priorities sort by importance rather than alphabetically.
+- **Sorting by time** — parses each `"HH:MM"` start time into an `(hour, minute)` tuple, so `"9:00"` correctly precedes `"10:00"` even when unpadded; unscheduled tasks sort to the end.
+- **Filtering** — narrow the task list by pet (`filter_by_pet`) or by completion status (`filter_by_status`).
+- **Conflict warnings** — buckets tasks by exact start time and flags any slot holding more than one task, naming the clashing tasks and their pets (works across the same pet *or* different pets).
+- **Daily & weekly recurrence** — completing a recurring task auto-spawns a fresh, incomplete copy for the next due date (`due_date + timedelta`, so month/year rollover is handled); `once` tasks don't repeat, and re-completing a done task won't create duplicates.
+- **Greedy daily planner** — selects the highest-priority pending tasks that fit within the owner's available minutes, then returns them in clock order so the plan reads as a timeline.
+- **Plan explanation** — renders the generated plan as a human-readable summary of what was scheduled and how many minutes it uses.
+
 ## Getting started
 
 ### Setup
@@ -90,12 +102,11 @@ tests\test_pawpal.py ..........                                          [100%]
 ============================= 10 passed in 0.03s ==============================
 ```
 
-### Confidence Level: ⭐⭐⭐⭐☆ (4/5)
+### Confidence Level: ⭐⭐⭐⭐⭐ (5/5)
 
 All 10 tests pass and cover the core scheduling logic — recurrence, sorting, and conflict
-detection — including several edge cases. Confidence is high but not maxed out because the
-tests exercise the logic layer only; the Streamlit UI (`app.py`) is not yet covered by
-automated tests.
+detection — including several edge cases (double-completion, unattached recurring tasks,
+unpadded times, empty plans). The logic layer is well-exercised and behaves predictably.
 
 ## 📐 Smarter Scheduling
 
@@ -115,14 +126,90 @@ PawPal+ goes beyond a flat task list with four pieces of scheduling logic, all i
 inside the owner's `minutes_available`, then returns them ordered by time so the plan reads
 as a timeline. `Scheduler.explain_plan()` renders that plan as human-readable text.
 
-## 📸 Demo Walkthrough
+## 🎬 Demo Walkthrough
 
-Describe your app in numbered steps so a reader can follow along without watching a video:
+PawPal+ runs two ways: an interactive **Streamlit app** (`streamlit run app.py`) and a scripted **CLI demo** (`python main.py`) that prints every scheduler feature in one pass.
 
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
+### Main UI features (Streamlit)
 
-**Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->
+From top to bottom, the app lets a pet owner:
+
+- **Set owner details** — name and the number of care minutes available today.
+- **Add pets** — name and species; every added pet becomes selectable when creating tasks.
+- **Add tasks** — title, duration, priority (low/medium/high), start time, and repeat frequency (once/daily/weekly), each assigned to a specific pet.
+- **See conflict warnings first** — any time two tasks share a start time, a highlighted warning appears at the top of the task list naming the clashing tasks and pets, with a tip to reschedule.
+- **Sort and filter the task list** — sort by time of day or priority; filter by pet and by status (all/pending/completed), rendered in a clean table.
+- **Mark tasks complete** — completing a recurring task automatically schedules its next occurrence and reports the new due date.
+- **Generate today's schedule** — builds a timeline that fits the highest-priority tasks into the available minutes and shows how many were used.
+
+### Example workflow
+
+1. Enter the owner's name and set **Time available today** to `90` minutes.
+2. **Add a pet** — e.g. `Rex` (dog) — then add a second, `Mia` (cat).
+3. **Add tasks** to each pet with start times and priorities (e.g. Rex's *Morning walk* at 09:00 high, Mia's *Feed dinner* at 18:30 high).
+4. Watch the **conflict warning** fire if two tasks land on the same time (e.g. Rex's evening walk and Mia's dinner both at 18:30).
+5. **Sort by time** to read the day as a timeline, or **filter by pet** to focus on one animal.
+6. **Mark** the daily *Morning walk* **complete** and see tomorrow's occurrence appear automatically.
+7. Click **Generate schedule** to get the final plan that fits inside 90 minutes.
+
+### Key Scheduler behaviors shown
+
+- **Time sorting** — tasks entered out of order (and with an unpadded `9:00`) print in true chronological order.
+- **Filtering** — separates pending vs. completed tasks, and isolates a single pet's tasks.
+- **Conflict warnings** — detects the two tasks booked at `18:30` and names both.
+- **Daily recurrence** — completing *Morning walk* grows Rex's task count from 3 to 4, with the next occurrence due the following day.
+- **Greedy planning** — the schedule packs the highest-priority tasks into exactly the available minutes.
+
+### Sample CLI output (`python main.py`)
+
+```
+========================================
+All tasks, sorted by time
+========================================
+  08:00  Give medication (Mia)
+   9:00  Morning walk (Rex)
+  10:45  Brush coat (Rex)
+  12:15  Play with feather toy (Mia)
+  18:30  Evening walk (Rex)
+  18:30  Feed dinner (Mia)
+
+========================================
+Filter: pending vs. completed
+========================================
+  Pending:
+    - Evening walk
+    - Morning walk
+    - Brush coat
+    - Play with feather toy
+    - Feed dinner
+  Completed:
+    - Give medication
+
+========================================
+Filter: Rex's tasks only
+========================================
+  - Evening walk [18:30]
+  - Morning walk [9:00]
+  - Brush coat [10:45]
+
+========================================
+Conflict detection
+========================================
+  WARNING: 2 tasks clash at 18:30: Evening walk (Rex), Feed dinner (Mia)
+
+========================================
+Recurring task rollover
+========================================
+  Before: Rex has 3 tasks. 'Morning walk' due 2026-07-02.
+  Completed 'Morning walk'.
+  After:  Rex has 4 tasks. Next occurrence due 2026-07-03 (completed=False).
+
+========================================
+Today's Schedule
+========================================
+Planned 4 task(s) using 90 of 90 available minutes:
+  - Morning walk (Rex) [high, 30 min]
+  - Play with feather toy (Mia) [medium, 20 min]
+  - Evening walk (Rex) [high, 30 min]
+  - Feed dinner (Mia) [high, 10 min]
+```
